@@ -1,0 +1,8 @@
+node_modules/
+out/
+dist/
+.data/
+.env.local
+*.log
+coverage/
+demo-workspace/
