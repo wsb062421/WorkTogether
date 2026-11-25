@@ -1,5 +1,6 @@
 // src/renderer/pages/OverviewPage.tsx
 import type { AppSnapshot, MemberId } from "@shared/contracts";
+import { teamApi } from "../adapters";
 
 interface Props {
   snapshot: AppSnapshot;
@@ -97,10 +98,7 @@ export default function OverviewPage({ snapshot, memberId }: Props) {
           </div>
           <button
             type="button"
-            onClick={() => {
-              const api = (window as any).teamApi || (window as any).__mockTeamApi;
-              if (api) void api.openSecondMemberWindow();
-            }}
+            onClick={() => void teamApi.openSecondMemberWindow()}
             style={{ padding: "6px 12px", backgroundColor: "#1d4ed8", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
           >
             打开另一成员窗口

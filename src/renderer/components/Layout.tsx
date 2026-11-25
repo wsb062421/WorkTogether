@@ -1,4 +1,5 @@
 // src/renderer/components/Layout.tsx
+import type { ReactNode } from "react";
 import type { AppSnapshot, MemberId } from "@shared/contracts";
 
 export type PageKey = "overview" | "requirements" | "tasks" | "impact" | "delivery";
@@ -10,7 +11,7 @@ interface LayoutProps {
   error: string | null;
   onNavigate: (page: PageKey) => void;
   onReset: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 const NAV_ITEMS: { key: PageKey; label: string }[] = [

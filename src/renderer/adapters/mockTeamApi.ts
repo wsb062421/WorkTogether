@@ -172,20 +172,33 @@ export class MockTeamApi implements TeamApi {
     req.confirmedBy = null;
     req.updatedAt = new Date().toISOString();
 
-    // 简单的模拟影响报告
+    // 影响范围由已有关联数据计算：Task.requirementIds -> CodeLink.taskId -> TestResult.taskId
     const impactedTasks = this.snapshot.tasks.filter((t) =>
       t.requirementIds.includes(req.id)
     );
+    const affectedTasksBefore = clone(impactedTasks); // 变更前状态，供影响视图展示“原状态”
+    const impactedTaskIds = new Set(impactedTasks.map((t) => t.id));
     impactedTasks.forEach((t) => {
       if (t.status !== "merged") t.status = "needs_recheck";
     });
 
+    const affectedFiles = [
+      ...new Set(
+        this.snapshot.codeLinks
+          .filter((link) => impactedTaskIds.has(link.taskId))
+          .map((link) => link.filePath)
+      ),
+    ];
+    const affectedTestIds = this.snapshot.testResults
+      .filter((result) => impactedTaskIds.has(result.taskId))
+      .map((result) => result.id);
+
     const report: ImpactReport = {
       requirement: clone(req),
       affectedTasks: clone(impactedTasks),
-      affectedFiles: ["demo-repo/inventory.py"],
-      affectedTestIds: ["test-1"],
-      summary: `需求变更：${input.reason}。影响了 ${impactedTasks.length} 个任务。`,
+      affectedFiles,
+      affectedTestIds,
+      summary: `需求变更：${input.reason}。影响 ${affectedTasksBefore.length} 个任务、${affectedFiles.length} 个文件、${affectedTestIds.length} 条历史测试。`,
       createdAt: new Date().toISOString(),
     };
 
