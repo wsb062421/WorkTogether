@@ -228,7 +228,7 @@ export class MockTeamApi implements TeamApi {
       createdBy: input.actorId,
       confirmedBy: null,
       createdAt: new Date().toISOString(),
-      taskIds: ["task-1", "task-2"],
+      taskIds: ["task-1", "task-2", "task-3"],
     };
 
     const newTasks: PlanTask[] = [
@@ -255,6 +255,19 @@ export class MockTeamApi implements TeamApi {
         requirementIds: confirmed.map((r) => r.id),
         acceptanceCriteria: ["测试通过", "边界值校验正确"],
         demoAction: "discount_rule",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: "task-3",
+        title: "实现库存校验",
+        description: "库存不足时禁止生成待交付订单",
+        ownerId: "member-b",
+        status: "planned",
+        dependencyIds: ["task-1"],
+        requirementIds: confirmed.map((r) => r.id),
+        acceptanceCriteria: ["库存不足返回错误", "测试通过"],
+        demoAction: "stock_validation",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
