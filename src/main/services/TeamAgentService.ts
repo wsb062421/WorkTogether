@@ -32,6 +32,7 @@ const opposite = (memberId: MemberId): MemberId =>
 
 export class TeamAgentService {
   private state: AppSnapshot;
+  private readonly runningTasks = new Set<string>();
 
   constructor(
     private readonly store: SqliteStateStore,
@@ -232,55 +233,86 @@ export class TeamAgentService {
   async executeTask(
     input: TaskActionInput
   ): Promise<TaskExecutionResult> {
-    let task = this.findTask(input.taskId);
-    this.assertDependenciesComplete(task);
-    if (task.status !== "running") {
-      task = await this.startTask(input);
+    const requestedTask = this.findTask(input.taskId);
+    if (this.runningTasks.has(requestedTask.id)) {
+      throw new Error(`任务“${requestedTask.title}”正在执行，请等待当前执行结束`);
     }
+    this.runningTasks.add(requestedTask.id);
 
-    const execution = await this.repository.executeTask(
-      task.id,
-      task.demoAction
-    );
-    const timestamp = now();
-    const codeLink = {
-      id: `code-${randomUUID()}`,
-      taskId: task.id,
-      filePath: execution.filePath,
-      commit: execution.commit,
-      diff: execution.diff,
-      createdAt: timestamp
-    };
-    const testResult: TestResult = {
-      id: `test-${randomUUID()}`,
-      taskId: task.id,
-      command: execution.command,
-      exitCode: execution.exitCode,
-      passed: execution.passed,
-      durationMs: execution.durationMs,
-      stdout: execution.stdout,
-      stderr: execution.stderr,
-      createdAt: timestamp
-    };
-    this.state.codeLinks.unshift(codeLink);
-    this.state.testResults.unshift(testResult);
-    task.status = execution.passed ? "waiting_review" : "tests_failed";
-    task.ownerId = input.actorId;
-    task.updatedAt = timestamp;
-    this.addEvent(
-      "task_executed",
-      input.actorId,
-      task.id,
-      execution.passed
-        ? `任务执行完成，pytest 通过：${task.title}`
-        : `任务执行失败，pytest 退出码 ${execution.exitCode}：${task.title}`
-    );
-    this.persistAndNotify();
-    return {
-      task: structuredClone(task),
-      codeLink: structuredClone(codeLink),
-      testResult: structuredClone(testResult)
-    };
+    let task = requestedTask;
+    try {
+      this.assertDependenciesComplete(task);
+      if (task.status !== "running") {
+        await this.startTask(input);
+        task = this.findTask(input.taskId);
+      }
+
+      let execution;
+      try {
+        execution = await this.repository.executeTask(
+          task.id,
+          task.demoAction
+        );
+      } catch (error) {
+        task.status = "tests_failed";
+        task.updatedAt = now();
+        this.addEvent(
+          "task_executed",
+          input.actorId,
+          task.id,
+          `任务执行异常：${task.title}；${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        this.persistAndNotify();
+        throw new Error(
+          `任务执行失败：${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+      const timestamp = now();
+      const codeLink = {
+        id: `code-${randomUUID()}`,
+        taskId: task.id,
+        filePath: execution.filePath,
+        commit: execution.commit,
+        diff: execution.diff,
+        createdAt: timestamp
+      };
+      const testResult: TestResult = {
+        id: `test-${randomUUID()}`,
+        taskId: task.id,
+        command: execution.command,
+        exitCode: execution.exitCode,
+        passed: execution.passed,
+        durationMs: execution.durationMs,
+        stdout: execution.stdout,
+        stderr: execution.stderr,
+        createdAt: timestamp
+      };
+      this.state.codeLinks.unshift(codeLink);
+      this.state.testResults.unshift(testResult);
+      task.status = execution.passed ? "waiting_review" : "tests_failed";
+      task.ownerId = input.actorId;
+      task.updatedAt = timestamp;
+      this.addEvent(
+        "task_executed",
+        input.actorId,
+        task.id,
+        execution.passed
+          ? `任务执行完成，pytest 通过：${task.title}`
+          : `任务执行失败，pytest 退出码 ${execution.exitCode}：${task.title}`
+      );
+      this.persistAndNotify();
+      return {
+        task: structuredClone(task),
+        codeLink: structuredClone(codeLink),
+        testResult: structuredClone(testResult)
+      };
+    } finally {
+      this.runningTasks.delete(requestedTask.id);
+    }
   }
 
   interruptTask(input: TaskActionInput): Promise<Handover> {
@@ -406,6 +438,9 @@ export class TeamAgentService {
   }
 
   async resetDemo(): Promise<void> {
+    if (this.runningTasks.size > 0) {
+      throw new Error("有任务正在执行，暂时不能重置演示数据");
+    }
     this.state = this.store.reset();
     await this.repository.resetWorkspace();
     this.addEvent(

@@ -71,11 +71,25 @@ export class DemoRepositoryService {
 
   constructor(
     private readonly workspacePath: string,
-    private readonly templatePath: string
+    private readonly templatePath: string,
+    private readonly pythonRoot = process.cwd()
   ) {}
 
   async ensureWorkspace(): Promise<void> {
-    if (!existsSync(join(this.workspacePath, ".git"))) {
+    const requiredFiles = [
+      "app/inventory.py",
+      "app/pricing.py",
+      "app/orders.py",
+      "tests/test_inventory.py",
+      "tests/test_pricing.py",
+      "tests/test_orders.py"
+    ];
+    const workspaceIsUsable =
+      existsSync(join(this.workspacePath, ".git")) &&
+      requiredFiles.every((file) =>
+        existsSync(join(this.workspacePath, file))
+      );
+    if (!workspaceIsUsable) {
       await this.resetWorkspace();
     }
   }
@@ -171,10 +185,6 @@ export class DemoRepositoryService {
     await this.runGit(["add", "."]);
     return this.runGit(
       [
-        "-c",
-        "user.name=团队协作智能体",
-        "-c",
-        "user.email=demo@local",
         "commit",
         "-m",
         message
@@ -228,7 +238,7 @@ export class DemoRepositoryService {
           ]
         : []),
       {
-        command: join(process.cwd(), ".venv", "Scripts", "python.exe"),
+        command: join(this.pythonRoot, ".venv", "Scripts", "python.exe"),
         prefixArgs: []
       },
       { command: "python", prefixArgs: [] },
