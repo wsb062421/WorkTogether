@@ -1,166 +1,107 @@
-import { useEffect, useState } from "react";
-import type {
-  AppSnapshot,
-  MemberId
-} from "@shared/contracts";
+// src/renderer/src/App.tsx
+import { useCallback, useEffect, useState } from "react";
+import type { AppSnapshot, MemberId } from "@shared/contracts";
+import { teamApi } from "../adapters";
+import Layout, { type PageKey } from "../components/Layout";
+import OverviewPage from "../pages/OverviewPage";
+import RequirementsPage from "../pages/RequirementsPage";
+import TasksPage from "../pages/TasksPage";
+import ImpactPage from "../pages/ImpactPage";
+import DeliveryPage from "../pages/DeliveryPage";
 
 function currentMember(): MemberId {
-  return new URLSearchParams(window.location.search).get("member") ===
-    "member-b"
+  return new URLSearchParams(window.location.search).get("member") === "member-b"
     ? "member-b"
     : "member-a";
 }
 
+function errorMessage(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
 export default function App() {
   const [memberId] = useState<MemberId>(currentMember);
+  const [activePage, setActivePage] = useState<PageKey>("overview");
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-
-    const load = async () => {
-      try {
-        const next = await window.teamApi.getSnapshot(memberId);
-        if (active) {
-          setSnapshot(next);
-          setError(null);
-        }
-      } catch (reason) {
-        if (active) {
-          setError(
-            reason instanceof Error ? reason.message : String(reason)
-          );
-        }
-      }
-    };
-
-    void load();
-    const unsubscribe = window.teamApi.onStateChanged(() => {
-      void load();
-    });
-    return () => {
-      active = false;
-      unsubscribe();
-    };
+  const load = useCallback(async () => {
+    try {
+      const next = await teamApi.getSnapshot(memberId);
+      setSnapshot(next);
+      setError(null);
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
   }, [memberId]);
 
-  const member = snapshot?.members.find((item) => item.id === memberId);
+  useEffect(() => {
+    void load();
+    return teamApi.onStateChanged(() => {
+      void load();
+    });
+  }, [load]);
+
+  const handleReset = async () => {
+    if (window.confirm("确定要重置演示数据吗？所有当前状态将丢失。")) {
+      try {
+        await teamApi.resetDemo();
+      } catch (reason) {
+        setError(errorMessage(reason));
+      }
+    }
+  };
+
+  const renderPage = () => {
+    if (!snapshot) return null;
+    switch (activePage) {
+      case "overview":
+        return <OverviewPage snapshot={snapshot} memberId={memberId} />;
+      case "requirements":
+        return <RequirementsPage snapshot={snapshot} memberId={memberId} />;
+      case "tasks":
+        return <TasksPage snapshot={snapshot} memberId={memberId} />;
+      case "impact":
+        return <ImpactPage snapshot={snapshot} memberId={memberId} />;
+      case "delivery":
+        return <DeliveryPage snapshot={snapshot} memberId={memberId} />;
+      default:
+        return null;
+    }
+  };
+
+  // 首次加载失败时不能一直显示“加载中”：给出原因、当前状态和重新加载入口
+  const renderFallback = () => {
+    if (error) {
+      return (
+        <section className="card error-card">
+          <h2>无法读取项目数据</h2>
+          <p>{error}</p>
+          <p>当前没有可显示的项目快照，页面内容未被修改。请重新加载；若仍失败，请重启应用。</p>
+          <button type="button" onClick={() => void load()}>
+            重新加载
+          </button>
+        </section>
+      );
+    }
+    return (
+      <section className="card loading-card">
+        <div className="spinner" />
+        <h2>正在读取项目数据</h2>
+      </section>
+    );
+  };
 
   return (
-    <main className="shell">
-      <aside className="sidebar">
-        <div className="brand">WorkTogether</div>
-        <p className="sidebar-note">协作智能体基础工程</p>
-        <nav>
-          <span className="nav-item active">工程状态</span>
-        </nav>
-      </aside>
-      <section className="content">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">共享接口与 IPC 验证</p>
-            <h1>{snapshot?.project.name ?? "正在连接本地服务"}</h1>
-          </div>
-          <div className="member-chip">
-            <span className="dot" />
-            {member?.name ?? memberId}
-          </div>
-        </header>
-
-        {error ? (
-          <section className="card error-card">
-            <h2>无法读取本地状态</h2>
-            <p>{error}</p>
-          </section>
-        ) : snapshot ? (
-          <>
-            <section className="status-grid">
-              <article className="card highlight">
-                <span className="label">主进程连接</span>
-                <strong>已建立</strong>
-                <p>渲染层已通过 preload 获取真实本地状态。</p>
-              </article>
-              <article className="card">
-                <span className="label">当前项目</span>
-                <strong>{snapshot.project.name}</strong>
-                <p>{snapshot.project.repositoryName}</p>
-              </article>
-              <article className="card">
-                <span className="label">共享需求</span>
-                <strong>{snapshot.requirements.length} 条</strong>
-                <p>
-                  已确认{" "}
-                  {
-                    snapshot.requirements.filter(
-                      (item) => item.status === "confirmed"
-                    ).length
-                  }{" "}
-                  条
-                </p>
-              </article>
-              <article className="card">
-                <span className="label">工程版本</span>
-                <strong>v0.1 骨架</strong>
-                <p>共享契约 v1.0 已接入。</p>
-              </article>
-            </section>
-
-            <section className="card">
-              <div className="section-title">
-                <div>
-                  <p className="eyebrow">基础能力</p>
-                  <h2>首批共享状态</h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void window.teamApi.openSecondMemberWindow()
-                  }
-                >
-                  打开另一成员窗口
-                </button>
-              </div>
-              <div className="requirement-list">
-                {snapshot.requirements.map((requirement) => (
-                  <article
-                    className="requirement"
-                    key={requirement.id}
-                  >
-                    <div>
-                      <strong>{requirement.title}</strong>
-                      <p>{requirement.content}</p>
-                    </div>
-                    <span className={`pill ${requirement.status}`}>
-                      {requirement.status === "confirmed"
-                        ? "已确认"
-                        : requirement.status === "proposed"
-                          ? "待确认"
-                          : requirement.status === "rejected"
-                            ? "已否决"
-                            : "已修改"}
-                    </span>
-                  </article>
-                ))}
-              </div>
-            </section>
-
-            <section className="handoff-note">
-              <strong>开发交接提示</strong>
-              <p>
-                B 可以在此渲染骨架基础上实现五个正式页面；页面统一的
-                API 是 <code>window.teamApi</code>，业务类型位于{" "}
-                <code>src/shared/contracts.ts</code>。
-              </p>
-            </section>
-          </>
-        ) : (
-          <section className="card loading-card">
-            <div className="spinner" />
-            <h2>正在读取本地共享状态</h2>
-          </section>
-        )}
-      </section>
-    </main>
+    <Layout
+      snapshot={snapshot}
+      memberId={memberId}
+      activePage={activePage}
+      error={snapshot ? error : null}
+      onNavigate={setActivePage}
+      onReset={handleReset}
+    >
+      {snapshot ? renderPage() : renderFallback()}
+    </Layout>
   );
 }
