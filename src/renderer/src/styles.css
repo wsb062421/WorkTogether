@@ -289,3 +289,24 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .modal { background: #fff; border-radius: 12px; padding: 24px; width: min(560px, 92vw); max-height: 90vh; overflow: auto; }
 .field { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; }
 .field input, .field textarea { border: 1px solid #c7d2cf; border-radius: 6px; padding: 8px; }
+.tasks-page { display: flex; flex-direction: column; gap: 16px; }
+.tasks-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.task-list-panel, .task-detail-panel, .evidence-panel { min-width: 0; }
+.task-item { display: flex; flex-direction: column; gap: 6px; width: 100%; text-align: left; margin-bottom: 8px; padding: 10px; background: #fff; color: #1f2937; border: 1px solid #d9e2df; border-radius: 8px; }
+.task-item-active { border-color: #1e5d50; box-shadow: 0 0 0 2px #1e5d50; }
+.tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #e8f0fe; color: #1f3a8a; white-space: nowrap; }
+.test-chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid transparent; }
+.test-none { background: #f3f4f6; color: #4b5563; border-color: #d1d5db; }
+.test-pass { background: #e6f4ee; color: #1e5d50; border-color: #8cc5ad; }
+.test-fail { background: #fdecea; color: #8a1c12; border-color: #f1a39b; }
+.task-running { background: #e8f0fe; color: #1f3a8a; border-color: #93b4f0; }
+.task-tests_failed { background: #fdecea; color: #8a1c12; border-color: #f1a39b; }
+.task-waiting_review, .task-reviewed { background: #fff4d6; color: #7a4b00; border-color: #f0c75e; }
+.task-needs_recheck, .task-waiting_handover { background: #fde8d7; color: #8a3b00; border-color: #e9a66f; }
+.task-merged { background: #e6f4ee; color: #1e5d50; border-color: #8cc5ad; }
+.task-planned, .task-ready { background: #f3f4f6; color: #374151; border-color: #d1d5db; }
+.pre-block { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px; overflow: auto; font-size: 12px; max-height: 260px; white-space: pre; }
+.execution-steps { margin-top: 12px; padding: 10px 14px; background: #e8f0fe; border-radius: 8px; color: #1f3a8a; }
+.execution-steps ol { margin: 4px 0 0; padding-left: 20px; }
+.evidence-panel h4 { margin: 14px 0 6px; }
+@media (max-width: 1280px) { .tasks-layout { grid-template-columns: 1fr; } }

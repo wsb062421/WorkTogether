@@ -60,7 +60,7 @@ export default function App() {
       case "requirements":
         return <RequirementsPage snapshot={snapshot} memberId={memberId} onNavigate={setActivePage} />;
       case "tasks":
-        return <TasksPage snapshot={snapshot} memberId={memberId} />;
+        return <TasksPage snapshot={snapshot} memberId={memberId} onNavigate={setActivePage} />;
       case "impact":
         return <ImpactPage snapshot={snapshot} memberId={memberId} />;
       case "delivery":
