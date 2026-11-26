@@ -157,10 +157,18 @@ export default function TasksPage({ snapshot, memberId, onNavigate }: Props) {
   const requirementCount = (task: PlanTask) => task.requirementIds.length;
   const isDependencyOfOthers = (task: PlanTask) =>
     tasks.some((other) => other.dependencyIds.includes(task.id));
-  const otherRunning = selected.status === "running" && busy === null;
+  const ownedByOther =
+    (selected.status === "running" || selected.status === "tests_failed") &&
+    selected.ownerId !== memberId;
+
+  const otherRunning = ownedByOther && busy === null;
 
   const canStart = STARTABLE.includes(selected.status) && blockers.length === 0 && busy === null;
-  const canExecute = EXECUTABLE.includes(selected.status) && blockers.length === 0 && busy === null;
+  const canExecute =
+    EXECUTABLE.includes(selected.status) &&
+    blockers.length === 0 &&
+    busy === null &&
+    !ownedByOther;
 
   const runAction = async (action: BusyAction) => {
     if (busy) return;
@@ -188,7 +196,7 @@ export default function TasksPage({ snapshot, memberId, onNavigate }: Props) {
     } catch (reason) {
       setNotice({
         kind: "error",
-        text: `${action === "start" ? "开始任务" : "执行任务"}失败：${errorMessage(reason)}。当前任务和已保存的证据未被修改；若涉及 Python 或仓库环境，请检查环境后重试。`
+        text: `${action === "start" ? "开始任务" : "执行任务"}请求失败：${errorMessage(reason)}。系统已保留当前任务状态和已有证据，请检查环境或日志后决定是否重试。`
       });
     } finally {
       setBusy(null);
@@ -324,7 +332,11 @@ export default function TasksPage({ snapshot, memberId, onNavigate }: Props) {
             )}
             {selected.status === "reviewed" && <p className="meta">已通过评审，等待合并。</p>}
             {selected.status === "merged" && <p className="meta">任务已完成并合并。</p>}
-            {otherRunning && <p className="meta">该任务正在执行中，请等待结果返回。</p>}
+            {ownedByOther && (
+              <p className="meta">
+                该任务当前由另一成员负责。若需要由你继续处理，请完成显式交接。
+              </p>
+            )}
           </div>
 
           {busy === "execute" && (
