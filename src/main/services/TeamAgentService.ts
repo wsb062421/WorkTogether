@@ -77,7 +77,7 @@ export class TeamAgentService {
     return structuredClone(requirement);
   }
 
-  confirmRequirement(
+  async confirmRequirement(
     input: RequirementActionInput
   ): Promise<Requirement> {
     const requirement = this.findRequirement(input.requirementId);
@@ -94,10 +94,10 @@ export class TeamAgentService {
       `确认需求：${requirement.title}`
     );
     this.persistAndNotify();
-    return Promise.resolve(structuredClone(requirement));
+    return structuredClone(requirement);
   }
 
-  rejectRequirement(
+  async rejectRequirement(
     input: RequirementActionInput
   ): Promise<Requirement> {
     const requirement = this.findRequirement(input.requirementId);
@@ -111,7 +111,7 @@ export class TeamAgentService {
       `否决需求：${requirement.title}`
     );
     this.persistAndNotify();
-    return Promise.resolve(structuredClone(requirement));
+    return structuredClone(requirement);
   }
 
   changeRequirement(
@@ -207,8 +207,9 @@ export class TeamAgentService {
     return structuredClone(plan);
   }
 
-  startTask(input: TaskActionInput): Promise<PlanTask> {
+  async startTask(input: TaskActionInput): Promise<PlanTask> {
     const task = this.findTask(input.taskId);
+    this.assertCurrentOwnerOrUnclaimed(task, input.actorId);
     this.assertDependenciesComplete(task);
     if (
       !["planned", "ready", "needs_recheck", "tests_failed"].includes(
@@ -227,13 +228,14 @@ export class TeamAgentService {
       `开始任务：${task.title}`
     );
     this.persistAndNotify();
-    return Promise.resolve(structuredClone(task));
+    return structuredClone(task);
   }
 
   async executeTask(
     input: TaskActionInput
   ): Promise<TaskExecutionResult> {
     const requestedTask = this.findTask(input.taskId);
+    this.assertCurrentOwnerOrUnclaimed(requestedTask, input.actorId);
     if (this.runningTasks.has(requestedTask.id)) {
       throw new Error(`任务“${requestedTask.title}”正在执行，请等待当前执行结束`);
     }
@@ -315,8 +317,24 @@ export class TeamAgentService {
     }
   }
 
-  interruptTask(input: TaskActionInput): Promise<Handover> {
+  async interruptTask(input: TaskActionInput): Promise<Handover> {
     const task = this.findTask(input.taskId);
+    this.assertCurrentOwner(task, input.actorId, "中断");
+    if (
+      ![
+        "planned",
+        "ready",
+        "running",
+        "tests_failed",
+        "waiting_review",
+        "needs_recheck"
+      ].includes(task.status)
+    ) {
+      throw new Error(`任务当前状态为 ${task.status}，不能中断交接`);
+    }
+    if (this.runningTasks.has(task.id)) {
+      throw new Error("任务正在执行，请等待本次执行结束后再交接");
+    }
     const timestamp = now();
     const linkedTests = this.state.testResults.filter(
       (result) => result.taskId === task.id
@@ -363,10 +381,10 @@ export class TeamAgentService {
       `中断任务并生成交接记录：${task.title}`
     );
     this.persistAndNotify();
-    return Promise.resolve(structuredClone(handover));
+    return structuredClone(handover);
   }
 
-  resumeTask(input: ResumeTaskInput): Promise<PlanTask> {
+  async resumeTask(input: ResumeTaskInput): Promise<PlanTask> {
     const task = this.findTask(input.taskId);
     const handover = this.state.handovers.find(
       (item) => item.id === input.handoverId
@@ -374,8 +392,17 @@ export class TeamAgentService {
     if (!handover) {
       throw new Error("交接记录不存在");
     }
+    if (handover.taskId !== task.id) {
+      throw new Error("交接记录与当前任务不匹配");
+    }
     if (task.status !== "waiting_handover") {
       throw new Error("当前任务不在等待交接状态");
+    }
+    if (input.actorId === handover.fromMemberId) {
+      throw new Error("原负责人不能接管自己交出的任务");
+    }
+    if (handover.toMemberId && handover.toMemberId !== input.actorId) {
+      throw new Error("当前成员不是该交接记录的接管人");
     }
     handover.toMemberId = input.actorId;
     handover.resumedAt = now();
@@ -395,15 +422,42 @@ export class TeamAgentService {
       `接管任务：${task.title}`
     );
     this.persistAndNotify();
-    return Promise.resolve(structuredClone(task));
+    return structuredClone(task);
   }
 
-  submitReview(input: ReviewInput): Promise<PlanTask> {
+  async submitReview(input: ReviewInput): Promise<PlanTask> {
     const task = this.findTask(input.taskId);
+    if (task.ownerId === input.actorId) {
+      throw new Error("任务执行者不能评审自己的任务");
+    }
     if (
       !["waiting_review", "needs_recheck"].includes(task.status)
     ) {
       throw new Error("当前任务不在可评审状态");
+    }
+    if (
+      input.decision === "approve" &&
+      task.status !== "waiting_review"
+    ) {
+      throw new Error("需求重新核对后，需要先重新执行任务并通过测试");
+    }
+    if (input.decision === "approve") {
+      const latestTest = this.state.testResults
+        .filter((result) => result.taskId === task.id)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      if (!latestTest?.passed) {
+        throw new Error("任务缺少通过的 pytest 证据，不能通过评审");
+      }
+      const invalidRequirements = this.state.requirements.filter(
+        (requirement) =>
+          task.requirementIds.includes(requirement.id) &&
+          requirement.status !== "confirmed"
+      );
+      if (invalidRequirements.length > 0) {
+        throw new Error("关联需求未处于已确认状态，不能通过评审");
+      }
+    } else if (!input.comment.trim()) {
+      throw new Error("退回任务时必须填写原因");
     }
     task.status =
       input.decision === "approve" ? "reviewed" : "needs_recheck";
@@ -417,13 +471,16 @@ export class TeamAgentService {
       }`
     );
     this.persistAndNotify();
-    return Promise.resolve(structuredClone(task));
+    return structuredClone(task);
   }
 
-  mergeTask(input: MergeTaskInput): Promise<PlanTask> {
+  async mergeTask(input: MergeTaskInput): Promise<PlanTask> {
     const task = this.findTask(input.taskId);
     if (task.status !== "reviewed") {
       throw new Error("任务通过评审后才能合并");
+    }
+    if (task.ownerId === input.actorId) {
+      throw new Error("任务执行者不能合并自己的任务");
     }
     task.status = "merged";
     task.updatedAt = now();
@@ -434,7 +491,7 @@ export class TeamAgentService {
       `合并任务：${task.title}${input.comment ? `；${input.comment}` : ""}`
     );
     this.persistAndNotify();
-    return Promise.resolve(structuredClone(task));
+    return structuredClone(task);
   }
 
   async resetDemo(): Promise<void> {
@@ -507,6 +564,36 @@ export class TeamAgentService {
           .join("、")}`
       );
     }
+  }
+
+  private assertCurrentOwnerOrUnclaimed(
+    task: PlanTask,
+    actorId: MemberId
+  ): void {
+    if (
+      ["running", "tests_failed"].includes(task.status) &&
+      task.ownerId !== actorId
+    ) {
+      throw new Error(
+        `任务当前由${this.memberLabel(task.ownerId)}负责，请先完成交接再继续`
+      );
+    }
+  }
+
+  private assertCurrentOwner(
+    task: PlanTask,
+    actorId: MemberId,
+    action: string
+  ): void {
+    if (task.ownerId !== actorId) {
+      throw new Error(
+        `只有当前负责人${this.memberLabel(task.ownerId)}可以${action}该任务`
+      );
+    }
+  }
+
+  private memberLabel(memberId: MemberId): string {
+    return memberId === "member-a" ? "成员甲" : "成员乙";
   }
 
   private findRequirement(id: string): Requirement {

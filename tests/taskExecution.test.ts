@@ -191,10 +191,16 @@ describe("TeamAgentService task execution", () => {
       await Promise.resolve();
       await expect(
         service.executeTask({
-          actorId: "member-a",
+          actorId: "member-b",
           taskId: task.id
         })
       ).rejects.toThrow("正在执行");
+      await expect(
+        service.executeTask({
+          actorId: "member-a",
+          taskId: task.id
+        })
+      ).rejects.toThrow("当前由成员乙负责");
 
       finish(successfulExecution(task));
       await expect(first).resolves.toMatchObject({
