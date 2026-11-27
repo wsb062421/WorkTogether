@@ -290,10 +290,44 @@ export class MockTeamApi implements TeamApi {
     return clone(newPlan);
   }
 
-  // 简化其余任务的实现，以确保 mock 可用
-  async startTask(input: TaskActionInput): Promise<PlanTask> {
-    const task = this.snapshot.tasks.find((t) => t.id === input.taskId);
+  // 任务动作的规则与 src/main/services/TeamAgentService.ts 保持一致
+  private findTaskOrThrow(taskId: string): PlanTask {
+    const task = this.snapshot.tasks.find((t) => t.id === taskId);
     if (!task) throw new Error("任务不存在");
+    return task;
+  }
+
+  private memberLabel(memberId: MemberId): string {
+    return memberId === "member-a" ? "成员甲" : "成员乙";
+  }
+
+  private setMemberStatus(memberId: MemberId, status: "online" | "interrupted") {
+    const member = this.snapshot.members.find((m) => m.id === memberId);
+    if (member) member.status = status;
+  }
+
+  private assertCurrentOwnerOrUnclaimed(task: PlanTask, actorId: MemberId) {
+    if (["running", "tests_failed"].includes(task.status) && task.ownerId !== actorId) {
+      throw new Error(`任务当前由${this.memberLabel(task.ownerId)}负责，请先完成交接再继续`);
+    }
+  }
+
+  private assertDependenciesComplete(task: PlanTask) {
+    for (const depId of task.dependencyIds) {
+      const dep = this.snapshot.tasks.find((t) => t.id === depId);
+      if (dep && !["reviewed", "merged"].includes(dep.status)) {
+        throw new Error(`前置任务「${dep.title}」尚未评审通过`);
+      }
+    }
+  }
+
+  async startTask(input: TaskActionInput): Promise<PlanTask> {
+    const task = this.findTaskOrThrow(input.taskId);
+    this.assertCurrentOwnerOrUnclaimed(task, input.actorId);
+    this.assertDependenciesComplete(task);
+    if (!["planned", "ready", "needs_recheck", "tests_failed"].includes(task.status)) {
+      throw new Error(`任务当前状态为 ${task.status}，不能开始`);
+    }
     task.status = "running";
     task.ownerId = input.actorId;
     task.updatedAt = new Date().toISOString();
@@ -302,9 +336,11 @@ export class MockTeamApi implements TeamApi {
   }
 
   async executeTask(input: TaskActionInput): Promise<TaskExecutionResult> {
-    const task = this.snapshot.tasks.find((t) => t.id === input.taskId);
-    if (!task) throw new Error("任务不存在");
-    
+    const task = this.findTaskOrThrow(input.taskId);
+    this.assertCurrentOwnerOrUnclaimed(task, input.actorId);
+    if (task.status !== "running" && task.status !== "tests_failed") {
+      throw new Error("请先开始任务再执行");
+    }
     task.status = "waiting_review";
     task.updatedAt = new Date().toISOString();
     const codeLink = {
@@ -326,7 +362,6 @@ export class MockTeamApi implements TeamApi {
       stderr: "",
       createdAt: new Date().toISOString(),
     };
-    
     this.snapshot.codeLinks.push(codeLink);
     this.snapshot.testResults.push(testResult);
     this.triggerChange();
@@ -334,42 +369,79 @@ export class MockTeamApi implements TeamApi {
   }
 
   async interruptTask(input: TaskActionInput): Promise<Handover> {
-    const task = this.snapshot.tasks.find((t) => t.id === input.taskId);
-    if (!task) throw new Error("任务不存在");
-    task.status = "waiting_handover";
+    const task = this.findTaskOrThrow(input.taskId);
+    if (task.ownerId !== input.actorId) {
+      throw new Error(`只有当前负责人${this.memberLabel(task.ownerId)}可以中断该任务`);
+    }
+    if (!["planned", "ready", "running", "tests_failed", "waiting_review", "needs_recheck"].includes(task.status)) {
+      throw new Error(`任务当前状态为 ${task.status}，不能中断交接`);
+    }
+    const otherId: MemberId = input.actorId === "member-a" ? "member-b" : "member-a";
+    const linkedTests = this.snapshot.testResults.filter((r) => r.taskId === task.id);
+    const latestTest = linkedTests[linkedTests.length - 1];
+    const hasCode = this.snapshot.codeLinks.some((l) => l.taskId === task.id);
     const handover: Handover = {
       id: `hand-${Date.now()}`,
       taskId: task.id,
       fromMemberId: input.actorId,
-      toMemberId: null,
-      completed: ["部分实现"],
-      pending: ["完成测试"],
-      evidence: ["diff 文件已保存"],
+      toMemberId: otherId,
+      completed: hasCode ? ["已保存代码修改（diff）"] : ["尚未产生代码修改"],
+      pending: [
+        latestTest?.passed ? "重新核对并提交评审" : "修复 pytest 失败并重新执行",
+        ...task.acceptanceCriteria.map((c) => `确认验收：${c}`),
+      ],
+      evidence: [
+        ...this.snapshot.codeLinks.filter((l) => l.taskId === task.id).map((l) => `代码：${l.filePath}（${l.commit}）`),
+        ...(latestTest ? [`最近测试：${latestTest.passed ? "通过" : "失败"}（退出码 ${latestTest.exitCode}）`] : ["尚未执行测试"]),
+      ],
       createdAt: new Date().toISOString(),
       resumedAt: null,
     };
+    task.status = "waiting_handover";
+    task.updatedAt = new Date().toISOString();
     this.snapshot.handovers.push(handover);
+    this.setMemberStatus(input.actorId, "interrupted");
     this.triggerChange();
     return clone(handover);
   }
 
   async resumeTask(input: ResumeTaskInput): Promise<PlanTask> {
-    const task = this.snapshot.tasks.find((t) => t.id === input.taskId);
-    if (!task) throw new Error("任务不存在");
-    task.status = "ready";
-    task.ownerId = input.actorId;
+    const task = this.findTaskOrThrow(input.taskId);
     const handover = this.snapshot.handovers.find((h) => h.id === input.handoverId);
-    if (handover) {
-      handover.toMemberId = input.actorId;
-      handover.resumedAt = new Date().toISOString();
+    if (!handover) throw new Error("交接记录不存在");
+    if (handover.taskId !== task.id) throw new Error("交接记录与当前任务不匹配");
+    if (task.status !== "waiting_handover") throw new Error("当前任务不在等待交接状态");
+    if (input.actorId === handover.fromMemberId) throw new Error("原负责人不能接管自己交出的任务");
+    if (handover.toMemberId && handover.toMemberId !== input.actorId) {
+      throw new Error("当前成员不是该交接记录的接管人");
     }
+    handover.toMemberId = input.actorId;
+    handover.resumedAt = new Date().toISOString();
+    task.ownerId = input.actorId;
+    task.status = "ready";
+    task.updatedAt = new Date().toISOString();
+    this.setMemberStatus(input.actorId, "online");
     this.triggerChange();
     return clone(task);
   }
 
   async submitReview(input: ReviewInput): Promise<PlanTask> {
-    const task = this.snapshot.tasks.find((t) => t.id === input.taskId);
-    if (!task) throw new Error("任务不存在");
+    const task = this.findTaskOrThrow(input.taskId);
+    if (task.ownerId === input.actorId) throw new Error("任务执行者不能评审自己的任务");
+    if (!["waiting_review", "needs_recheck"].includes(task.status)) {
+      throw new Error("当前任务不在可评审状态");
+    }
+    if (input.decision === "approve") {
+      if (task.status !== "waiting_review") throw new Error("需求重新核对后，需要先重新执行任务并通过测试");
+      const tests = this.snapshot.testResults.filter((r) => r.taskId === task.id);
+      if (!tests[tests.length - 1]?.passed) throw new Error("任务缺少通过的 pytest 证据，不能通过评审");
+      const invalid = this.snapshot.requirements.some(
+        (r) => task.requirementIds.includes(r.id) && r.status !== "confirmed"
+      );
+      if (invalid) throw new Error("关联需求未处于已确认状态，不能通过评审");
+    } else if (!input.comment.trim()) {
+      throw new Error("退回任务时必须填写原因");
+    }
     task.status = input.decision === "approve" ? "reviewed" : "needs_recheck";
     task.updatedAt = new Date().toISOString();
     this.triggerChange();
@@ -377,8 +449,9 @@ export class MockTeamApi implements TeamApi {
   }
 
   async mergeTask(input: MergeTaskInput): Promise<PlanTask> {
-    const task = this.snapshot.tasks.find((t) => t.id === input.taskId);
-    if (!task) throw new Error("任务不存在");
+    const task = this.findTaskOrThrow(input.taskId);
+    if (task.status !== "reviewed") throw new Error("任务通过评审后才能合并");
+    if (task.ownerId === input.actorId) throw new Error("任务执行者不能合并自己的任务");
     task.status = "merged";
     task.updatedAt = new Date().toISOString();
     this.triggerChange();
