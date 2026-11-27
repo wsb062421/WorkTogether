@@ -121,6 +121,7 @@ export default function TasksPage({ snapshot, memberId, onNavigate }: Props) {
   const tasks = snapshot.tasks;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyAction | null>(null);
+  const [interrupting, setInterrupting] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
 
   const selected: PlanTask | undefined =
@@ -169,6 +170,26 @@ export default function TasksPage({ snapshot, memberId, onNavigate }: Props) {
     blockers.length === 0 &&
     busy === null &&
     !ownedByOther;
+
+  const canInterrupt =
+    selected.ownerId === memberId &&
+    ["planned", "ready", "running", "tests_failed", "waiting_review", "needs_recheck"].includes(selected.status) &&
+    busy === null &&
+    !interrupting;
+
+  const runInterrupt = async () => {
+    if (busy || interrupting) return;
+    setInterrupting(true);
+    setNotice(null);
+    try {
+      await teamApi.interruptTask({ actorId: memberId, taskId: selected.id });
+      setNotice({ kind: "ok", text: "已中断任务并生成交接记录，请在“变更与交接”页完成接管。" });
+    } catch (reason) {
+      setNotice({ kind: "error", text: `中断交接请求失败：${errorMessage(reason)}。系统已保留当前任务状态和已有证据。` });
+    } finally {
+      setInterrupting(false);
+    }
+  };
 
   const runAction = async (action: BusyAction) => {
     if (busy) return;
@@ -320,6 +341,11 @@ export default function TasksPage({ snapshot, memberId, onNavigate }: Props) {
             {canExecute && (
               <button type="button" onClick={() => void runAction("execute")}>
                 {selected.status === "tests_failed" ? "重新执行" : "执行任务"}
+              </button>
+            )}
+            {canInterrupt && (
+              <button type="button" className="button-secondary" onClick={() => void runInterrupt()}>
+                中断并交接
               </button>
             )}
             {selected.status === "waiting_review" && (
