@@ -163,22 +163,25 @@ export default function TasksPage({ snapshot, memberId, onNavigate }: Props) {
     selected.ownerId !== memberId;
 
   const otherRunning = ownedByOther && busy === null;
+  const actionBusy = busy !== null || interrupting;
 
-  const canStart = STARTABLE.includes(selected.status) && blockers.length === 0 && busy === null;
+  const canStart =
+    STARTABLE.includes(selected.status) &&
+    blockers.length === 0 &&
+    !actionBusy;
   const canExecute =
     EXECUTABLE.includes(selected.status) &&
     blockers.length === 0 &&
-    busy === null &&
+    !actionBusy &&
     !ownedByOther;
 
   const canInterrupt =
     selected.ownerId === memberId &&
     ["planned", "ready", "running", "tests_failed", "waiting_review", "needs_recheck"].includes(selected.status) &&
-    busy === null &&
-    !interrupting;
+    !actionBusy;
 
   const runInterrupt = async () => {
-    if (busy || interrupting) return;
+    if (actionBusy) return;
     setInterrupting(true);
     setNotice(null);
     try {
@@ -192,7 +195,7 @@ export default function TasksPage({ snapshot, memberId, onNavigate }: Props) {
   };
 
   const runAction = async (action: BusyAction) => {
-    if (busy) return;
+    if (actionBusy) return;
     setBusy(action);
     setNotice(null);
     const input = { actorId: memberId, taskId: selected.id };

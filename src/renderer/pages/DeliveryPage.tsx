@@ -146,12 +146,18 @@ export default function DeliveryPage({ snapshot, memberId }: Props) {
   const requirements: Requirement[] = snapshot.requirements.filter((r) =>
     selected.requirementIds.includes(r.id)
   );
-  const staleRequirement = requirements.some((r) => r.status === "changed");
+  const invalidRequirement = requirements.some(
+    (requirement) => requirement.status !== "confirmed"
+  );
   const latestCode: CodeLink | undefined = latestOf(snapshot.codeLinks, selected.id);
   const latestTest: TestResult | undefined = latestOf(snapshot.testResults, selected.id);
   const isOwner = selected.ownerId === memberId;
   const canReview = (selected.status === "waiting_review" || selected.status === "needs_recheck") && !isOwner;
-  const canApprove = canReview && selected.status === "waiting_review" && !!latestTest?.passed && !staleRequirement;
+  const canApprove =
+    canReview &&
+    selected.status === "waiting_review" &&
+    !!latestTest?.passed &&
+    !invalidRequirement;
   const canReturn = canReview;
   const canMerge = selected.status === "reviewed" && !isOwner;
 
@@ -224,9 +230,9 @@ export default function DeliveryPage({ snapshot, memberId }: Props) {
             负责人：{memberName(selected.ownerId)} ｜ 最近更新：{formatTime(selected.updatedAt)}
           </p>
 
-          {staleRequirement && (
+          {invalidRequirement && (
             <div className="notice notice-warn">
-              关联需求已修改，本评审内容已过期。请先在任务页重新执行，再提交评审。
+              关联需求存在未确认、已修改或已否决的条目，本评审内容已过期。请先重新确认需求并在任务页重新执行，再提交评审。
             </div>
           )}
 
@@ -290,8 +296,8 @@ export default function DeliveryPage({ snapshot, memberId }: Props) {
               </div>
               {!canApprove && (
                 <p className="meta">
-                  {staleRequirement
-                    ? "需求已变更，需先重新执行任务。"
+                  {invalidRequirement
+                    ? "关联需求未全部确认，需先确认需求并重新执行任务。"
                     : !latestTest?.passed
                       ? "pytest 未通过，不能通过评审。"
                       : "当前任务不能直接通过评审。"}

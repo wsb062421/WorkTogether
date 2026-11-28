@@ -243,6 +243,7 @@ export default function ImpactPage({ snapshot, memberId, onNavigate }: Props) {
             handovers.map((handover) => {
               const task = snapshot.tasks.find((t) => t.id === handover.taskId);
               const waiting = task?.status === "waiting_handover" && handover.resumedAt === null;
+              const isOriginalOwner = handover.fromMemberId === memberId;
               const canResume = waiting && handover.toMemberId === memberId && memberId !== handover.fromMemberId;
               const test = latestTestFor(snapshot, handover.taskId);
               const reqs = task
@@ -312,7 +313,7 @@ export default function ImpactPage({ snapshot, memberId, onNavigate }: Props) {
                       </button>
                       {!canResume && (
                         <span className="meta">
-                          {handover.toMemberId === memberId || handover.toMemberId === null
+                          {isOriginalOwner
                             ? "原负责人不能接管自己交出的任务。"
                             : `请由${memberName(handover.toMemberId)}在其窗口中接管。`}
                         </span>
