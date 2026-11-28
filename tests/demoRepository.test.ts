@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DemoRepositoryService } from "../src/main/services/DemoRepositoryService";
+import { pythonExecutable } from "./helpers/python";
 
 const temporaryDirectories: string[] = [];
 
@@ -29,7 +30,7 @@ function createWorkspace(): {
 
 function runTests(workspace: string, testFile: string) {
   return spawnSync(
-    join(process.cwd(), ".venv", "Scripts", "python.exe"),
+    pythonExecutable(),
     ["-m", "pytest", "-q", testFile],
     {
       cwd: workspace,
