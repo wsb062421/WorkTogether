@@ -1,13 +1,19 @@
 // src/renderer/pages/OverviewPage.tsx
+import { useState } from "react";
 import type { AppSnapshot, MemberId } from "@shared/contracts";
 import { teamApi } from "../adapters";
 
 interface Props {
   snapshot: AppSnapshot;
   memberId: MemberId;
+  onReset: () => Promise<void>;
+  onNavigate: (page: "overview" | "requirements" | "tasks" | "impact" | "delivery") => void;
 }
 
-export default function OverviewPage({ snapshot, memberId }: Props) {
+export default function OverviewPage({ snapshot, memberId, onReset, onNavigate }: Props) {
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
   const member = snapshot.members.find((m) => m.id === memberId);
   const confirmedReqs = snapshot.requirements.filter((r) => r.status === "confirmed").length;
   const totalTasks = snapshot.tasks.length;
@@ -32,6 +38,9 @@ export default function OverviewPage({ snapshot, memberId }: Props) {
     nextStepHint = "点击“生成计划”开始规划";
   }
 
+  const nextPage: "requirements" | "tasks" | "impact" | "delivery" =
+    waitingReviewTasks > 0 ? "delivery" : snapshot.plan ? "tasks" : "requirements";
+
   const latestTest = snapshot.testResults.length > 0
     ? snapshot.testResults[snapshot.testResults.length - 1]
     : null;
@@ -55,6 +64,9 @@ export default function OverviewPage({ snapshot, memberId }: Props) {
           <div style={{ textAlign: "right" }}>
             <p style={{ fontSize: "14px", color: "#666" }}>下一步建议</p>
             <strong style={{ color: "#1d4ed8" }}>{nextStepHint}</strong>
+            <div className="action-row" style={{ justifyContent: "flex-end" }}>
+              <button type="button" onClick={() => onNavigate(nextPage)}>前往对应页面</button>
+            </div>
           </div>
         </div>
       </section>
@@ -89,7 +101,52 @@ export default function OverviewPage({ snapshot, memberId }: Props) {
         </article>
       </section>
 
-      {/* 4. 最近活动时间线 */}
+      {/* 4. 演示重置（二次确认，重置中禁用） */}
+      <section className="card">
+        <div className="row-between">
+          <div>
+            <p className="eyebrow">演示控制</p>
+            <p className="meta">重置会清空计划、任务、证据、交接和影响记录，并恢复演示仓库。</p>
+          </div>
+          {!confirmReset ? (
+            <button type="button" className="button-danger" disabled={resetting} onClick={() => setConfirmReset(true)}>
+              重置演示数据
+            </button>
+          ) : (
+            <div className="action-row">
+              <button
+                type="button"
+                className="button-danger"
+                disabled={resetting}
+                onClick={async () => {
+                  setResetting(true);
+                  setResetError(null);
+                  try {
+                    await onReset();
+                    setConfirmReset(false);
+                  } catch (reason) {
+                    setResetError(reason instanceof Error ? reason.message : String(reason));
+                  } finally {
+                    setResetting(false);
+                  }
+                }}
+              >
+                {resetting ? "正在恢复演示数据…" : "确认重置"}
+              </button>
+              <button type="button" className="button-secondary" disabled={resetting} onClick={() => setConfirmReset(false)}>
+                取消
+              </button>
+            </div>
+          )}
+        </div>
+        {resetError && (
+          <div className="notice notice-error">
+            重置失败：{resetError}。当前数据未被清空，请先结束正在执行的任务后再试。
+          </div>
+        )}
+      </section>
+
+      {/* 5. 最近活动时间线 */}
       <section className="card">
         <div className="section-title">
           <div>
@@ -98,6 +155,7 @@ export default function OverviewPage({ snapshot, memberId }: Props) {
           </div>
           <button
             type="button"
+            className="button-secondary"
             onClick={() => void teamApi.openSecondMemberWindow()}
             style={{ padding: "6px 12px", backgroundColor: "#1d4ed8", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
           >
@@ -105,7 +163,7 @@ export default function OverviewPage({ snapshot, memberId }: Props) {
           </button>
         </div>
         <div className="requirement-list">
-          {snapshot.events.slice(0, 8).map((event) => (
+          {snapshot.events.slice(0, 10).map((event) => (
             <article className="requirement" key={event.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px", borderBottom: "1px solid #f3f4f6" }}>
               <div>
                 <strong>{event.summary}</strong>

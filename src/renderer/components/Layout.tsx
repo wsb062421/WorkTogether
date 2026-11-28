@@ -10,7 +10,6 @@ interface LayoutProps {
   activePage: PageKey;
   error: string | null;
   onNavigate: (page: PageKey) => void;
-  onReset: () => void;
   children: ReactNode;
 }
 
@@ -28,7 +27,6 @@ export default function Layout({
   activePage,
   error,
   onNavigate,
-  onReset,
   children,
 }: LayoutProps) {
   const member = snapshot?.members.find((item) => item.id === memberId);
@@ -55,15 +53,6 @@ export default function Layout({
             </span>
           ))}
         </nav>
-        <div style={{ marginTop: "auto", paddingTop: "24px" }}>
-          <button
-            type="button"
-            onClick={onReset}
-            style={{ width: "100%", padding: "8px", color: "#b91c1c", border: "1px solid #fca5a5", backgroundColor: "#fef2f2", borderRadius: "4px", cursor: "pointer" }}
-          >
-            重置演示数据
-          </button>
-        </div>
       </aside>
 
       {/* 主内容区 */}

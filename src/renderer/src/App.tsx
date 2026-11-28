@@ -42,21 +42,17 @@ export default function App() {
     });
   }, [load]);
 
+  // 重置由总览页自行二次确认；这里失败时抛出给调用方显示，成功后等待广播刷新
   const handleReset = async () => {
-    if (window.confirm("确定要重置演示数据吗？所有当前状态将丢失。")) {
-      try {
-        await teamApi.resetDemo();
-      } catch (reason) {
-        setError(errorMessage(reason));
-      }
-    }
+    await teamApi.resetDemo();
+    await load();
   };
 
   const renderPage = () => {
     if (!snapshot) return null;
     switch (activePage) {
       case "overview":
-        return <OverviewPage snapshot={snapshot} memberId={memberId} />;
+        return <OverviewPage snapshot={snapshot} memberId={memberId} onReset={handleReset} onNavigate={setActivePage} />;
       case "requirements":
         return <RequirementsPage snapshot={snapshot} memberId={memberId} onNavigate={setActivePage} />;
       case "tasks":
@@ -99,7 +95,6 @@ export default function App() {
       activePage={activePage}
       error={snapshot ? error : null}
       onNavigate={setActivePage}
-      onReset={handleReset}
     >
       {snapshot ? renderPage() : renderFallback()}
     </Layout>
